@@ -1,0 +1,9 @@
+python scripts/run.py \
+    --model aae \
+    --train_epochs 2 \
+    --device cuda:2 \
+    --n_samples 100 \
+    --n_jobs 1 \
+    --train_load ../stgg/resource/data/qm9/train.txt \
+    --val_load ../stgg/resource/data/qm9/valid.txt \
+    --test_path ../stgg/resource/data/qm9/test.txt \
