@@ -147,7 +147,7 @@ class BaseGeneratorLightningModule(pl.LightningModule):
         unique_smiles_set = set(valid_smiles_list)
         novel_smiles_list = [smiles for smiles in valid_smiles_list if smiles not in train_data]
         if not self.trainer.sanity_checking:
-            wandb.init(name='ZINC-STGG')
+            wandb.init(name='ZINC-STGG', group='ZINC-STGG-group')
             wandb.config.update(self.hparams)
             # calculate FCD
             if len(valid_smiles_list) > 0:
@@ -157,6 +157,7 @@ class BaseGeneratorLightningModule(pl.LightningModule):
                     device=str(self.device), 
                     train=train_data, 
                     test=test_data,
+                    batch_size=256
                 )
 
             # calculate NSPDK
@@ -250,7 +251,7 @@ if __name__ == "__main__":
     # wandb.watch(model)
 
     trainer = pl.Trainer(
-        gpus=4,
+        gpus=6,
         default_root_dir="../resource/log/",
         max_epochs=hparams.max_epochs,
         gradient_clip_val=hparams.gradient_clip_val,
