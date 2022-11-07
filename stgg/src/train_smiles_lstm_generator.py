@@ -35,7 +35,7 @@ class SmilesCharGeneratorLightningModule(BaseGeneratorLightningModule):
             "simplemoses": SimpleMosesDataset,
             "qm9": QM9Dataset,
         }.get(hparams.dataset_name)
-        self.train_dataset = dataset_cls("train", hparams.string_type)
+        self.train_dataset = dataset_cls("train_val", hparams.string_type)
         self.val_dataset = dataset_cls("valid", hparams.string_type)
         self.test_dataset = dataset_cls("test", hparams.string_type)
         self.train_smiles_set = set(self.train_dataset.smiles_list)
@@ -150,18 +150,17 @@ class SmilesCharGeneratorLightningModule(BaseGeneratorLightningModule):
 
 
 if __name__ == "__main__":
-    wandb.init(name='test')
+
     parser = argparse.ArgumentParser()
     SmilesCharGeneratorLightningModule.add_args(parser)
+    
     parser.add_argument("--max_epochs", type=int, default=3)
     parser.add_argument("--tag", type=str, default="default")
+    parser.add_argument("--group", type=str, default='char_rnn')
 
     hparams = parser.parse_args()
-    wandb.config.update(hparams)
-
     model = SmilesCharGeneratorLightningModule(hparams)
-    wandb.watch(model)
-
+    
     trainer = pl.Trainer(
         gpus=1,
         default_root_dir="../resource/log/",

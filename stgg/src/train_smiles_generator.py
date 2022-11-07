@@ -25,7 +25,7 @@ class SmilesGeneratorLightningModule(BaseGeneratorLightningModule):
             "simplemoses": SimpleMosesDataset,
             "qm9": QM9Dataset,
         }.get(hparams.dataset_name)
-        self.train_dataset = dataset_cls("train")
+        self.train_dataset = dataset_cls("train_val")
         self.val_dataset = dataset_cls("valid")
         self.test_dataset = dataset_cls("test")
         self.train_smiles_set = set(self.train_dataset.smiles_list)
@@ -125,7 +125,7 @@ class SmilesGeneratorLightningModule(BaseGeneratorLightningModule):
 
 
 if __name__ == "__main__":
-    wandb.init(name='QM9-SMILES_Transformer')
+    # wandb.init(name='QM9-SMILES_Transformer')
     parser = argparse.ArgumentParser()
     SmilesGeneratorLightningModule.add_args(parser)
     parser.add_argument("--max_epochs", type=int, default=100)
@@ -133,24 +133,25 @@ if __name__ == "__main__":
     parser.add_argument("--load_checkpoint_path", type=str, default="")
     parser.add_argument("--resume_from_checkpoint_path", type=str, default=None)
     parser.add_argument("--tag", type=str, default="default")
+    parser.add_argument("--group", type=str, default='char_rnn')
 
     hparams = parser.parse_args()
-    wandb.config.update(hparams)
+    # wandb.config.update(hparams)
 
 
     model = SmilesGeneratorLightningModule(hparams)
-    wandb.watch(model)
+    # wandb.watch(model)
     if hparams.load_checkpoint_path != "":
         model.load_state_dict(torch.load(hparams.load_checkpoint_path)["state_dict"])
 
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=os.path.join("../resource/checkpoint/", hparams.tag), monitor="validation/loss/total", mode="min",
-    )
+    # checkpoint_callback = ModelCheckpoint(
+    #     dirpath=os.path.join("../resource/checkpoint/", hparams.tag), monitor="validation/loss/total", mode="min",
+    # )
     trainer = pl.Trainer(
         gpus=1,
         default_root_dir="../resource/log/",
         max_epochs=hparams.max_epochs,
-        callbacks=[checkpoint_callback],
+        # callbacks=[checkpoint_callback],
         gradient_clip_val=hparams.gradient_clip_val,
         resume_from_checkpoint=hparams.resume_from_checkpoint_path,
     )

@@ -49,7 +49,7 @@ class BaseGeneratorLightningModule(pl.LightningModule):
             "simplemoses": SimpleMosesDataset,
             "qm9": QM9Dataset,
         }.get(hparams.dataset_name)
-        self.train_dataset = dataset_cls("train")
+        self.train_dataset = dataset_cls("train_val")
         self.val_dataset = dataset_cls("valid")
         self.test_dataset = dataset_cls("test")
         self.train_smiles_set = set(self.train_dataset.smiles_list)
@@ -117,11 +117,10 @@ class BaseGeneratorLightningModule(pl.LightningModule):
         return loss
 
     def validation_step(self, batched_data, batch_idx):
-        loss, statistics = self.shared_step(batched_data)
-        for key, val in statistics.items():
-            self.log(f"validation/{key}", val, on_step=False, on_epoch=True, logger=True)
-
-        return loss
+        # loss, statistics = self.shared_step(batched_data)
+        # for key, val in statistics.items():
+        #     self.log(f"validation/{key}", val, on_step=False, on_epoch=True, logger=True)
+        pass
 
     def validation_epoch_end(self, outputs):
         if (self.current_epoch + 1) % self.hparams.check_sample_every_n_epoch == 0:
@@ -147,7 +146,7 @@ class BaseGeneratorLightningModule(pl.LightningModule):
         unique_smiles_set = set(valid_smiles_list)
         novel_smiles_list = [smiles for smiles in valid_smiles_list if smiles not in train_data]
         if not self.trainer.sanity_checking:
-            wandb.init(name='ZINC-STGG', group='ZINC-STGG-group')
+            wandb.init(name=f'{self.hparams.dataset_name}-{self.hparams.string_type}', project='benckmark', group=f'{self.hparams.group}')
             wandb.config.update(self.hparams)
             # calculate FCD
             if len(valid_smiles_list) > 0:
@@ -229,6 +228,7 @@ class BaseGeneratorLightningModule(pl.LightningModule):
         parser.add_argument("--eval_moses", action="store_true")
 
         parser.add_argument("--string_type", type=str, default='smiles')
+        
 
         return parser
 
@@ -244,6 +244,8 @@ if __name__ == "__main__":
     parser.add_argument("--load_checkpoint_path", type=str, default="")
     parser.add_argument("--resume_from_checkpoint_path", type=str, default=None)
     parser.add_argument("--tag", type=str, default="default")
+    parser.add_argument("--group", type=str, default='char_rnn')
+
     hparams = parser.parse_args()
     # wandb.config.update(hparams)
 
