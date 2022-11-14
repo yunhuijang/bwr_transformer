@@ -4,6 +4,15 @@ import torch
 import torch.nn.functional as F
 import selfies as sf
 from deepsmiles import Converter
+import sentencepiece as spm
+
+
+def train_sentence_piece(dataset='qm9'):
+    # train sentence piece and generate model and vocab file
+    if dataset == 'qm9':
+        spm.SentencePieceTrainer.Train('--input=resource/data/qm9/train_val.txt --model_prefix=qm9 --vocab_size=127 --max_sentence_length=200')
+    elif dataset == 'zinc':
+        spm.SentencePieceTrainer.Train('--input=resource/data/zinc/train_val.txt --model_prefix=zinc --vocab_size=200 --max_sentence_length=400')
 
 def compute_sequence_accuracy(logits, batched_sequence_data, ignore_index=0):
     batch_size = batched_sequence_data.size(0)
@@ -35,7 +44,7 @@ def compute_entropy(logits, batched_sequence_data, ignore_index=0):
     probs = probs[~torch.isinf(logits)]
     loss = -(probs * torch.log(probs)).sum() / logits.size(0)
     return loss
-
+    
 def canonicalize_selfies(selfies):
     if selfies is None:
         return None

@@ -95,6 +95,8 @@ class SmilesCharGeneratorLightningModule(BaseGeneratorLightningModule):
 
         canonicalize_cls = {
             "smiles": canonicalize,
+            "spm": canonicalize,
+            "spm_zinc": canonicalize,
             "selfies": canonicalize_selfies,
             "deep_smiles": canonicalize_deep_smiles
         }.get(hparams.string_type)
@@ -107,7 +109,7 @@ class SmilesCharGeneratorLightningModule(BaseGeneratorLightningModule):
             smiles_list = Parallel(n_jobs=8)(delayed(sf.decoder)(selfies) for selfies in smiles_list if selfies is not None)
             results = Parallel(n_jobs=8)(delayed(sf.decoder)(selfies) for selfies in results if selfies is not None)
             return smiles_list, results
-        elif self.hparams.string_type == 'smiles':
+        elif self.hparams.string_type == 'smiles' or self.hparams.string_type == 'spm' or self.hparams.string_type == 'spm_zinc':
             return smiles_list, results
         elif self.hparams.string_type == 'deep_smiles':
             converter = Converter(rings=True, branches=True)

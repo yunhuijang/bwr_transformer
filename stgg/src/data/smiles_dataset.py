@@ -3,6 +3,7 @@ import enum
 from deepsmiles import Converter
 import selfies as sf
 from joblib import Parallel, delayed
+import sentencepiece as spm
 
 PAD_TOKEN = "[pad]"
 BOS_TOKEN = "[bos]"
@@ -77,7 +78,7 @@ TOKENS = [
     "s",
 ]
 TOKENS_SELFIES = [PAD_TOKEN, BOS_TOKEN, EOS_TOKEN,
-# in QM5
+# in QM9
 '[#Branch1]', '[#Branch2]', '[#C]', '[#N]', 
 '[/C]', '[/Cl]', '[/NH1+1]', '[/N]', '[/O-1]', '[/O]', '[/S-1]', 
 '[/S]', '[=Branch1]', '[=Branch2]', '[=C]', '[=N+1]', '[=NH1+1]', 
@@ -100,6 +101,14 @@ TOKENS_DEEPSMILES = TOKENS + ['%20', '%22', '%28', '%12',
 '%14', '%21', '%18', '%17', '%19']
 MAX_LEN = 250
 
+# SPM tokens
+sp_qm9 = spm.SentencePieceProcessor(model_file='../qm9.model')
+sp_zinc = spm.SentencePieceProcessor(model_file='../zinc.model')
+# TODO: PAD_TOKEN, BOS_TOKEN, EOS_TOKEN 필요?
+TOKENS_SPM_QM9 = [sp_qm9.IdToPiece(ids) for ids in range(sp_qm9.GetPieceSize())]
+TOKENS_SPM_QM9.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN])
+TOKENS_SPM_ZINC = [sp_zinc.IdToPiece(ids) for ids in range(sp_zinc.GetPieceSize())]
+TOKENS_SPM_ZINC.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN])
 
 @enum.unique
 class TokenType(enum.IntEnum):
@@ -119,9 +128,20 @@ def token_to_id(tokens):
 def id_to_token(tokens):
     return {idx: tokens[idx] for idx in range(len(tokens))}
 
+def tokenize_spm(smiles, dataset='qm9'):
+    if dataset == 'qm9':
+        TOKEN2ID = token_to_id(TOKENS_SPM_QM9)
+        tokens = [TOKEN2ID[BOS_TOKEN]]
+        tokens.extend(sp_qm9.encode_as_ids(smiles))
+    else:
+        TOKEN2ID = token_to_id(TOKENS_SPM_ZINC)
+        tokens = [TOKEN2ID[BOS_TOKEN]]
+        tokens.extend(sp_zinc.encode_as_ids(smiles))
+    tokens.append(TOKEN2ID[EOS_TOKEN])
+    return tokens
+
 def tokenize_selfies(selfies):
     selfies_split = selfies.split("]")[:-1]
-    tokens = []
     tokens = ["[bos]"]
     tokens.extend([selfies + "]" for selfies in selfies_split])
     tokens.append("[eos]")
@@ -154,7 +174,6 @@ def tokenize_deepsmiles(deep_smiles):
                 token = char
 
         elif char == "%":
-            # TODO: 똑바로 했는지 확인
             peek = next(deep_smiles, "")
             if peek == '(':
                 token = char + peek + next(deep_smiles, "") + next(deep_smiles, "") + next(deep_smiles, "") + next(deep_smiles, "")
@@ -216,7 +235,12 @@ def tokenize(smiles):
 
 
 def untokenize(sequence, string_type):
-    if string_type == 'selfies':
+    if string_type == 'spm':
+        ID2TOKEN = id_to_token(TOKENS_SPM_QM9)
+    elif string_type == 'spm_zinc':
+        ID2TOKEN = id_to_token(TOKENS_SPM_ZINC)
+        # return [sp_qm9.IdToPiece(id) for id in sequence]
+    elif string_type == 'selfies':
         ID2TOKEN = id_to_token(TOKENS_SELFIES)
     elif string_type == 'deep_smiles':
         ID2TOKEN = id_to_token(TOKENS_DEEPSMILES)
@@ -253,7 +277,7 @@ class ZincDataset(Dataset):
 
         smiles_list_path = os.path.join(self.raw_dir, f"{split}.txt")
         smiles_list = Path(smiles_list_path).read_text(encoding="utf=8").splitlines()
-        if string_type == 'smiles':
+        if string_type == 'smiles' or string_type == 'spm' or string_type == 'spm_zinc':
             string_list = smiles_list
         elif string_type == 'selfies':
             string_list = Parallel(n_jobs=8)(delayed(sf.encoder)(smiles) for smiles in smiles_list)
@@ -284,6 +308,11 @@ class ZincDataset(Dataset):
 
         elif self.string_type == 'deep_smiles':
             return torch.LongTensor(tokenize_deepsmiles(smiles))
+        
+        elif self.string_type == 'spm':
+            return torch.LongTensor(tokenize_spm(smiles, 'qm9'))
+        elif self.string_type == 'spm_zinc':
+            return torch.LongTensor(tokenize_spm(smiles, 'zinc'))
 
         else:
             raise ValueError(f"Undefined string type {self.string_type}")
