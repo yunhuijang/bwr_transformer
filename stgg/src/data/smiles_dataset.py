@@ -4,6 +4,9 @@ from deepsmiles import Converter
 import selfies as sf
 from joblib import Parallel, delayed
 import sentencepiece as spm
+from collections import defaultdict
+import pandas as pd
+import json
 
 PAD_TOKEN = "[pad]"
 BOS_TOKEN = "[bos]"
@@ -102,13 +105,34 @@ TOKENS_DEEPSMILES = TOKENS + ['%20', '%22', '%28', '%12',
 MAX_LEN = 250
 
 # SPM tokens
-sp_qm9 = spm.SentencePieceProcessor(model_file='../qm9.model')
-sp_zinc = spm.SentencePieceProcessor(model_file='../zinc.model')
-# TODO: PAD_TOKEN, BOS_TOKEN, EOS_TOKEN 필요?
+sp_qm9 = spm.SentencePieceProcessor(model_file='../resource/tokenizer/qm9/qm9.model')
+sp_zinc = spm.SentencePieceProcessor(model_file='../resource/tokenizer/zinc/zinc.model')
 TOKENS_SPM_QM9 = [sp_qm9.IdToPiece(ids) for ids in range(sp_qm9.GetPieceSize())]
 TOKENS_SPM_QM9.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN])
 TOKENS_SPM_ZINC = [sp_zinc.IdToPiece(ids) for ids in range(sp_zinc.GetPieceSize())]
 TOKENS_SPM_ZINC.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN])
+
+# SPM_BPE tokens & merges
+# zinc: token size 100 / qm9: token size 50 (but 36)
+with open(f"../resource/tokenizer/qm9/merges_50.txt", 'r') as merges_file:
+    merges = merges_file.read()
+    merges_dict = eval(merges)
+    MERGES_QM9 = {eval(key): value for key, value in merges_dict.items()}
+
+with open(f"../resource/tokenizer/zinc/merges_100.txt", 'r') as merges_file:
+    merges = merges_file.read()
+    merges_dict = eval(merges)
+    MERGES_ZINC = {eval(key): value for key, value in merges_dict.items()}
+
+with open(f"../resource/tokenizer/qm9/tokens_50.txt", 'r') as tokens_file:
+    tokens = tokens_file.readlines()
+    TOKENS_BPE_QM9 = [token.rstrip('\n') for token in tokens]
+    TOKENS_BPE_QM9.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN])
+
+with open(f"../resource/tokenizer/zinc/tokens_100.txt", 'r') as tokens_file:
+    tokens = tokens_file.readlines()
+    TOKENS_BPE_ZINC = [token.rstrip('\n') for token in tokens]
+    TOKENS_BPE_ZINC.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN])
 
 @enum.unique
 class TokenType(enum.IntEnum):
@@ -127,6 +151,101 @@ def token_to_id(tokens):
 
 def id_to_token(tokens):
     return {idx: tokens[idx] for idx in range(len(tokens))}
+
+def compute_pair_freqs(splits, word_freqs):
+    # used in train_tokenizer_with_bpe
+    pair_freqs = defaultdict(int)
+    for word, freq in word_freqs.items():
+        split = splits[word]
+        if len(split) == 1:
+            continue
+        for i in range(len(split) - 1):
+            pair = (split[i], split[i + 1])
+            pair_freqs[pair] += freq
+    return pair_freqs
+
+def merge_pair(a, b, splits, word_freqs):
+    # used in train_tokenizer_with_bpe
+    for word in word_freqs:
+        split = splits[word]
+        if len(split) == 1:
+            continue
+
+        i = 0
+        while i < len(split) - 1:
+            if split[i] == a and split[i + 1] == b:
+                split = split[:i] + [a + b] + split[i + 2 :]
+            else:
+                i += 1
+        splits[word] = split
+    return splits
+
+def train_tokenizer_with_bpe(dataset='qm9', vocab_size=50):
+    # generate merges and tokens file for BPE
+    data = pd.read_csv(f'../resource/data/{dataset}/train_val.txt')
+    data.columns =['smiles']
+    if dataset == 'qm9':
+        sp = sp_qm9
+    elif dataset == 'zinc':
+        sp = sp_zinc
+    data['tokens'] = data['smiles'].apply(lambda x: sp.encode_as_pieces(x))
+    data['ids'] = data['smiles'].apply(lambda x: sp.encode_as_ids(x))
+
+    word_freqs = dict(data['tokens'].explode().value_counts())
+    key_list = [list(key) for key in word_freqs.keys()]
+    vocab = list({char for char_list in key_list for char in char_list})
+    splits = {word: [c for c in word] for word in word_freqs.keys()}
+
+    pair_freqs = compute_pair_freqs(splits, word_freqs)
+    merges = defaultdict()
+    while len(vocab) < vocab_size:
+        pair_freqs = compute_pair_freqs(splits, word_freqs)
+        best_pair = ""
+        max_freq = None
+        for pair, freq in pair_freqs.items():
+            if max_freq is None or max_freq < freq:
+                best_pair = pair
+                max_freq = freq
+        if best_pair == '':
+            print(f"Too large vocab size: break at {len(vocab)} before vocab size {vocab_size}")
+            break
+        splits = merge_pair(*best_pair, splits, word_freqs)
+        merges[best_pair] = best_pair[0] + best_pair[1]
+        vocab.append(best_pair[0] + best_pair[1])
+
+    merges_str = {str(key):value for key, value in merges.items()}
+    with open(f"../resource/tokenizer/{dataset}/merges_{vocab_size}.txt", 'w') as merges_file:
+        merges_file.write(json.dumps(merges_str))
+    with open(f"../resource/tokenizer/{dataset}/tokens_{vocab_size}.txt", 'w') as vocab_file:
+        for line in vocab:
+            vocab_file.write(f"{line}\n")
+    return merges, vocab
+
+def tokenize_spm_bpe(smiles, dataset='qm9'):
+    if dataset == 'qm9':
+        pre_tokenized_text = sp_qm9.encode_as_pieces(smiles)
+        merges = MERGES_QM9
+        TOKEN2ID = token_to_id(TOKENS_BPE_QM9)
+    elif dataset == 'zinc':
+        pre_tokenized_text = sp_zinc.encode_as_pieces(smiles)
+        merges = MERGES_ZINC
+        TOKEN2ID = token_to_id(TOKENS_BPE_ZINC)
+
+    splits = [[l for l in word] for word in pre_tokenized_text]
+    for pair, merge in merges.items():
+        for idx, split in enumerate(splits):
+            i = 0
+            while i < len(split) - 1:
+                if split[i] == pair[0] and split[i + 1] == pair[1]:
+                    split = split[:i] + [merge] + split[i + 2 :]
+                else:
+                    i += 1
+            splits[idx] = split
+    tokens = [TOKEN2ID[BOS_TOKEN]]
+    token_strs = sum(splits, [])
+    tokens.extend([TOKEN2ID[token] for token in token_strs])
+    tokens.append(TOKEN2ID[EOS_TOKEN])
+    return tokens
 
 def tokenize_spm(smiles, dataset='qm9'):
     if dataset == 'qm9':
@@ -246,6 +365,10 @@ def untokenize(sequence, string_type):
         ID2TOKEN = id_to_token(TOKENS_DEEPSMILES)
     elif string_type == 'smiles':
         ID2TOKEN = id_to_token(TOKENS)
+    elif string_type == 'bpe':
+        ID2TOKEN = id_to_token(TOKENS_BPE_QM9)
+    elif string_type == 'bpe_zinc':
+        ID2TOKEN = id_to_token(TOKENS_BPE_ZINC)
     else:
         raise ValueError(f"Undefined string type {string_type}")
 
@@ -277,7 +400,7 @@ class ZincDataset(Dataset):
 
         smiles_list_path = os.path.join(self.raw_dir, f"{split}.txt")
         smiles_list = Path(smiles_list_path).read_text(encoding="utf=8").splitlines()
-        if string_type == 'smiles' or string_type == 'spm' or string_type == 'spm_zinc':
+        if string_type in ['smiles', 'spm', 'spm_zinc', 'bpe', 'bpe_zinc']:
             string_list = smiles_list
         elif string_type == 'selfies':
             string_list = Parallel(n_jobs=8)(delayed(sf.encoder)(smiles) for smiles in smiles_list)
@@ -313,7 +436,11 @@ class ZincDataset(Dataset):
             return torch.LongTensor(tokenize_spm(smiles, 'qm9'))
         elif self.string_type == 'spm_zinc':
             return torch.LongTensor(tokenize_spm(smiles, 'zinc'))
-
+        elif self.string_type == 'bpe':
+            return torch.LongTensor(tokenize_spm_bpe(smiles, 'qm9'))
+        elif self.string_type == 'bpe_zinc':
+            return torch.LongTensor(tokenize_spm_bpe(smiles, 'zinc'))
+            
         else:
             raise ValueError(f"Undefined string type {self.string_type}")
     

@@ -1,4 +1,3 @@
-import os
 import argparse
 
 import torch
@@ -6,25 +5,14 @@ from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
 
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint
-from neptune.new.integrations.pytorch_lightning import NeptuneLogger
 
 from moses.utils import disable_rdkit_log, enable_rdkit_log
-from moses.metrics.metrics import get_all_metrics
 from model.smiles_lstm_generator import CharRNNGenerator
 from train_generator import BaseGeneratorLightningModule
 from data.smiles_dataset import ZincDataset, MosesDataset, SimpleMosesDataset, QM9Dataset, untokenize
 from util import canonicalize_deep_smiles, compute_sequence_accuracy, compute_sequence_cross_entropy, canonicalize, canonicalize_selfies, canonicalize_deep_smiles
-from fcd_torch import FCD as FCDMetric
-from eden.graph import vectorize
-from sklearn.metrics.pairwise import pairwise_kernels
-import numpy as np
-import wandb
-import pickle
-import sys
 import selfies as sf
 from deepsmiles import Converter
-from data.target_data import Data
 from joblib import Parallel, delayed
 
 class SmilesCharGeneratorLightningModule(BaseGeneratorLightningModule):
@@ -97,6 +85,8 @@ class SmilesCharGeneratorLightningModule(BaseGeneratorLightningModule):
             "smiles": canonicalize,
             "spm": canonicalize,
             "spm_zinc": canonicalize,
+            "bpe": canonicalize,
+            "bpe_zinc": canonicalize,
             "selfies": canonicalize_selfies,
             "deep_smiles": canonicalize_deep_smiles
         }.get(hparams.string_type)
@@ -109,7 +99,7 @@ class SmilesCharGeneratorLightningModule(BaseGeneratorLightningModule):
             smiles_list = Parallel(n_jobs=8)(delayed(sf.decoder)(selfies) for selfies in smiles_list if selfies is not None)
             results = Parallel(n_jobs=8)(delayed(sf.decoder)(selfies) for selfies in results if selfies is not None)
             return smiles_list, results
-        elif self.hparams.string_type == 'smiles' or self.hparams.string_type == 'spm' or self.hparams.string_type == 'spm_zinc':
+        elif self.hparams.string_type in ['smiles', 'spm', 'spm_zinc', 'bpe', 'bpe_zinc']:
             return smiles_list, results
         elif self.hparams.string_type == 'deep_smiles':
             converter = Converter(rings=True, branches=True)
