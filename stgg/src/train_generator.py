@@ -253,7 +253,7 @@ if __name__ == "__main__":
     # wandb.watch(model)
 
     trainer = pl.Trainer(
-        gpus=6,
+        gpus=1,
         default_root_dir="../resource/log/",
         max_epochs=hparams.max_epochs,
         gradient_clip_val=hparams.gradient_clip_val,

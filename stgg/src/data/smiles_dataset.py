@@ -7,6 +7,8 @@ import sentencepiece as spm
 from collections import defaultdict
 import pandas as pd
 import json
+from math import log
+import copy
 
 PAD_TOKEN = "[pad]"
 BOS_TOKEN = "[bos]"
@@ -134,6 +136,29 @@ with open(f"../resource/tokenizer/zinc/tokens_100.txt", 'r') as tokens_file:
     TOKENS_BPE_ZINC = [token.rstrip('\n') for token in tokens]
     TOKENS_BPE_ZINC.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN])
 
+# SPM_UNI tokens & models
+# zinc: token size 100 / qm9: token size 100 (but 36)
+with open(f"../resource/tokenizer/qm9/model_100.txt", 'r') as model_file:
+    model = model_file.read()
+    model_dict = eval(model)
+    MODEL_QM9 = model_dict
+
+with open(f"../resource/tokenizer/zinc/model_100.txt", 'r') as model_file:
+    model = model_file.read()
+    model_dict = eval(model)
+    MODEL_ZINC = model_dict
+
+with open(f"../resource/tokenizer/qm9/tokens_uni_100.txt", 'r') as tokens_file:
+    tokens = tokens_file.readlines()
+    TOKENS_UNI_QM9 = [token.rstrip('\n') for token in tokens]
+    TOKENS_UNI_QM9.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN])
+
+with open(f"../resource/tokenizer/zinc/tokens_uni_100.txt", 'r') as tokens_file:
+    tokens = tokens_file.readlines()
+    TOKENS_UNI_ZINC = [token.rstrip('\n') for token in tokens]
+    TOKENS_UNI_ZINC.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN])
+
+
 @enum.unique
 class TokenType(enum.IntEnum):
     ATOM = 1
@@ -151,6 +176,124 @@ def token_to_id(tokens):
 
 def id_to_token(tokens):
     return {idx: tokens[idx] for idx in range(len(tokens))}
+
+def encode_word(word, model):
+    best_segmentations = [{"start": 0, "score": 1}] + [
+        {"start": None, "score": None} for _ in range(len(word))
+    ]
+    for start_idx in range(len(word)):
+        # This should be properly filled by the previous steps of the loop
+        best_score_at_start = best_segmentations[start_idx]["score"]
+        for end_idx in range(start_idx + 1, len(word) + 1):
+            token = word[start_idx:end_idx]
+            if token in model and best_score_at_start is not None:
+                score = model[token] + best_score_at_start
+                # If we have found a better segmentation ending at end_idx, we update
+                if (
+                    best_segmentations[end_idx]["score"] is None
+                    or best_segmentations[end_idx]["score"] > score
+                ):
+                    best_segmentations[end_idx] = {"start": start_idx, "score": score}
+
+    segmentation = best_segmentations[-1]
+    if segmentation["score"] is None:
+        # We did not find a tokenization of the word -> unknown
+        return ["<unk>"], None
+
+    score = segmentation["score"]
+    start = segmentation["start"]
+    end = len(word)
+    tokens = []
+    while start != 0:
+        tokens.insert(0, word[start:end])
+        next_start = best_segmentations[start]["start"]
+        end = start
+        start = next_start
+    tokens.insert(0, word[start:end])
+    return tokens, score
+
+def train_tokenizer_with_unigram(dataset='qm9', vocab_size=100):
+    data = pd.read_csv(f'stgg/resource/data/{dataset}/train_val.txt')
+    sp = spm.SentencePieceProcessor(model_file=f'stgg/resource/tokenizer/{dataset}/{dataset}.model')
+    data.columns =['smiles']
+    data['tokens'] = data['smiles'].apply(lambda x: sp.encode_as_pieces(x))
+    data['ids'] = data['smiles'].apply(lambda x: sp.encode_as_ids(x))
+
+    word_freqs = dict(data['tokens'].explode().value_counts())
+
+    char_freqs = defaultdict(int)
+    subwords_freqs = defaultdict(int)
+    for word, freq in word_freqs.items():
+        for i in range(len(word)):
+            char_freqs[word[i]] += freq
+            # Loop through the subwords of length at least 2
+            for j in range(i + 2, len(word) + 1):
+                subwords_freqs[word[i:j]] += freq
+
+    sorted_subwords = sorted(subwords_freqs.items(), key=lambda x: x[1], reverse=True)
+
+    token_freqs = list(char_freqs.items()) + sorted_subwords[: 300 - len(char_freqs)]
+    token_freqs = {token: freq for token, freq in token_freqs}
+
+    total_sum = sum([freq for token, freq in token_freqs.items()])
+    model = {token: -log(freq / total_sum) for token, freq in token_freqs.items()}
+
+    percent_to_remove = 0.1
+    while len(model) > vocab_size:
+        scores = compute_scores(model, word_freqs)
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1])
+        # Remove percent_to_remove tokens with the lowest scores.
+        for i in range(int(len(model) * percent_to_remove)):
+            _ = token_freqs.pop(sorted_scores[i][0])
+
+        total_sum = sum([freq for token, freq in token_freqs.items()])
+        model = {token: -log(freq / total_sum) for token, freq in token_freqs.items()}
+
+    tokens = list(model.keys())
+
+    with open(f"stgg/resource/tokenizer/{dataset}/model_{vocab_size}.txt", 'w') as model_file:
+        model_file.write(json.dumps(model))
+    with open(f"stgg/resource/tokenizer/{dataset}/tokens_uni_{vocab_size}.txt", 'w') as vocab_file:
+        for line in tokens:
+            vocab_file.write(f"{line}\n")
+
+    return model, tokens
+
+def compute_loss(model, word_freqs):
+    loss = 0
+    for word, freq in word_freqs.items():
+        _, word_loss = encode_word(word, model)
+        loss += freq * word_loss
+    return loss
+
+def compute_scores(model, word_freqs):
+    scores = {}
+    model_loss = compute_loss(model, word_freqs)
+    for token, score in model.items():
+        # We always keep tokens of length 1
+        if len(token) == 1:
+            continue
+        model_without_token = copy.deepcopy(model)
+        _ = model_without_token.pop(token)
+        scores[token] = compute_loss(model_without_token, word_freqs) - model_loss
+    return scores
+
+def tokenize_spm_uni(smiles, dataset='qm9'):
+    if dataset == 'qm9':
+        pre_tokenized_text = sp_qm9.encode_as_pieces(smiles)
+        model = MODEL_QM9
+        TOKEN2ID = token_to_id(TOKENS_UNI_QM9)
+    elif dataset == 'zinc':
+        pre_tokenized_text = sp_zinc.encode_as_pieces(smiles)
+        model = MODEL_ZINC
+        TOKEN2ID = token_to_id(TOKENS_UNI_ZINC)
+
+    encoded_words = [encode_word(word, model)[0] for word in pre_tokenized_text]
+    tokens = [TOKEN2ID[BOS_TOKEN]]
+    token_strs = sum(encoded_words, [])
+    tokens.extend([TOKEN2ID[token] for token in token_strs])
+    tokens.append(TOKEN2ID[EOS_TOKEN])
+    return tokens
 
 def compute_pair_freqs(splits, word_freqs):
     # used in train_tokenizer_with_bpe
@@ -184,10 +327,7 @@ def train_tokenizer_with_bpe(dataset='qm9', vocab_size=50):
     # generate merges and tokens file for BPE
     data = pd.read_csv(f'../resource/data/{dataset}/train_val.txt')
     data.columns =['smiles']
-    if dataset == 'qm9':
-        sp = sp_qm9
-    elif dataset == 'zinc':
-        sp = sp_zinc
+    sp = spm.SentencePieceProcessor(model_file=f'stgg/resource/tokenizer/{dataset}/{dataset}.model')
     data['tokens'] = data['smiles'].apply(lambda x: sp.encode_as_pieces(x))
     data['ids'] = data['smiles'].apply(lambda x: sp.encode_as_ids(x))
 
@@ -216,7 +356,7 @@ def train_tokenizer_with_bpe(dataset='qm9', vocab_size=50):
     merges_str = {str(key):value for key, value in merges.items()}
     with open(f"../resource/tokenizer/{dataset}/merges_{vocab_size}.txt", 'w') as merges_file:
         merges_file.write(json.dumps(merges_str))
-    with open(f"../resource/tokenizer/{dataset}/tokens_{vocab_size}.txt", 'w') as vocab_file:
+    with open(f"../resource/tokenizer/{dataset}/tokens_bpe_{vocab_size}.txt", 'w') as vocab_file:
         for line in vocab:
             vocab_file.write(f"{line}\n")
     return merges, vocab
@@ -369,6 +509,10 @@ def untokenize(sequence, string_type):
         ID2TOKEN = id_to_token(TOKENS_BPE_QM9)
     elif string_type == 'bpe_zinc':
         ID2TOKEN = id_to_token(TOKENS_BPE_ZINC)
+    elif string_type == 'uni':
+        ID2TOKEN = id_to_token(TOKENS_UNI_QM9)
+    elif string_type == 'uni_zinc':
+        ID2TOKEN = id_to_token(TOKENS_UNI_ZINC)
     else:
         raise ValueError(f"Undefined string type {string_type}")
 
@@ -400,7 +544,7 @@ class ZincDataset(Dataset):
 
         smiles_list_path = os.path.join(self.raw_dir, f"{split}.txt")
         smiles_list = Path(smiles_list_path).read_text(encoding="utf=8").splitlines()
-        if string_type in ['smiles', 'spm', 'spm_zinc', 'bpe', 'bpe_zinc']:
+        if string_type in ['smiles', 'spm', 'spm_zinc', 'bpe', 'bpe_zinc', 'uni', 'uni_zinc']:
             string_list = smiles_list
         elif string_type == 'selfies':
             string_list = Parallel(n_jobs=8)(delayed(sf.encoder)(smiles) for smiles in smiles_list)
@@ -428,10 +572,8 @@ class ZincDataset(Dataset):
 
         elif self.string_type == 'selfies':
             return torch.LongTensor(tokenize_selfies(smiles))
-
         elif self.string_type == 'deep_smiles':
             return torch.LongTensor(tokenize_deepsmiles(smiles))
-        
         elif self.string_type == 'spm':
             return torch.LongTensor(tokenize_spm(smiles, 'qm9'))
         elif self.string_type == 'spm_zinc':
@@ -440,6 +582,10 @@ class ZincDataset(Dataset):
             return torch.LongTensor(tokenize_spm_bpe(smiles, 'qm9'))
         elif self.string_type == 'bpe_zinc':
             return torch.LongTensor(tokenize_spm_bpe(smiles, 'zinc'))
+        elif self.string_type == 'uni':
+            return torch.LongTensor(tokenize_spm_uni(smiles, 'qm9'))
+        elif self.string_type == 'uni_zinc':
+            return torch.LongTensor(tokenize_spm_uni(smiles, 'zinc'))
             
         else:
             raise ValueError(f"Undefined string type {self.string_type}")

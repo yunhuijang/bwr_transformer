@@ -9,7 +9,7 @@ import math
 from tqdm import tqdm
 from joblib import Parallel, delayed
 
-from data.smiles_dataset import PAD_TOKEN, BOS_TOKEN, EOS_TOKEN, TOKENS, TOKENS_DEEPSMILES, TOKENS_SELFIES, TOKENS_SPM_QM9, TOKENS_SPM_ZINC, TOKENS_BPE_QM9, TOKENS_BPE_ZINC
+from data.smiles_dataset import PAD_TOKEN, BOS_TOKEN, EOS_TOKEN, TOKENS, TOKENS_DEEPSMILES, TOKENS_SELFIES, TOKENS_SPM_QM9, TOKENS_SPM_ZINC, TOKENS_BPE_QM9, TOKENS_BPE_ZINC, TOKENS_UNI_ZINC, TOKENS_UNI_QM9
 from data.smiles_dataset import token_to_id
 
 from time import time
@@ -46,7 +46,11 @@ class CharRNNGenerator(nn.Module):
         elif string_type == 'bpe':
             self.TOKENS = TOKENS_BPE_QM9
         elif string_type == 'bpe_zinc':
-            self.TOKENS = TOKENS_BPE_ZINC 
+            self.TOKENS = TOKENS_BPE_ZINC
+        elif string_type == 'uni':
+            self.TOKENS = TOKENS_UNI_QM9
+        elif string_type == 'uni_zinc':
+            self.TOKENS = TOKENS_UNI_ZINC
         else:
             raise ValueError(f"Undefined string type {string_type}")
 
