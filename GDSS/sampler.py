@@ -141,8 +141,6 @@ class Sampler_mol(object):
         gen_mols, num_mols_wo_correction = gen_mol(x, adj, self.configt.data.data)
         num_mols = len(gen_mols)
 
-        # import pdb; pdb.set_trace()
-
         gen_smiles = mols_to_smiles(gen_mols)
         gen_smiles = [smi for smi in gen_smiles if len(smi)]
         
@@ -172,4 +170,3 @@ class Sampler_mol(object):
         metrics_dict = scores
         metrics_dict['NSPDK'] = scores_nspdk
         wandb.log(metrics_dict)
-
