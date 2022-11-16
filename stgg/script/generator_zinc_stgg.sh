@@ -5,3 +5,4 @@ python train_generator.py \
 --num_samples 10000 \
 --max_epochs 500 \
 --check_sample_every_n_epoch 20 \
+--group stgg
