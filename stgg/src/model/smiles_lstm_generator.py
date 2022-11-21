@@ -1,18 +1,11 @@
-from joblib.parallel import delayed
-from networkx.readwrite.gml import Token
 import torch
 import torch.nn as nn
-import torch.nn.utils.rnn as rnn_utils
 from torch.distributions import Categorical
 import math
 
-from tqdm import tqdm
-from joblib import Parallel, delayed
-
-from data.smiles_dataset import PAD_TOKEN, BOS_TOKEN, EOS_TOKEN, TOKENS, TOKENS_DEEPSMILES, TOKENS_SELFIES, TOKENS_SPM_QM9, TOKENS_SPM_ZINC, TOKENS_BPE_QM9, TOKENS_BPE_ZINC, TOKENS_UNI_ZINC, TOKENS_UNI_QM9
+from data.smiles_dataset import PAD_TOKEN, BOS_TOKEN, EOS_TOKEN, TOKENS, TOKENS_DEEPSMILES, TOKENS_SELFIES, UNI_TOKENS_DICT, BPE_TOKENS_DICT, SPM_TOKENS_DICT
 from data.smiles_dataset import token_to_id
 
-from time import time
 
 # helper Module to convert tensor of input indices into corresponding tensor of token embeddings
 class TokenEmbedding(nn.Module):
@@ -27,30 +20,27 @@ class TokenEmbedding(nn.Module):
 
 class CharRNNGenerator(nn.Module):
     def __init__(
-        self, emb_size, dropout, string_type
+        self, emb_size, dropout, string_type, dataset
     ):
         super(CharRNNGenerator, self).__init__()
         self.emb_size = emb_size
         self.dropout = dropout
         self.string_type = string_type
+        self.dataset = dataset
         if string_type == 'smiles':
             self.TOKENS = TOKENS
         elif string_type == 'selfies':
             self.TOKENS = TOKENS_SELFIES
         elif string_type == 'deep_smiles':
             self.TOKENS = TOKENS_DEEPSMILES
-        elif string_type == 'spm':
-            self.TOKENS = TOKENS_SPM_QM9
-        elif string_type == 'spm_zinc':
-            self.TOKENS = TOKENS_SPM_ZINC
+        elif string_type == 'spm_unigram':
+            self.TOKENS = SPM_TOKENS_DICT[f'{dataset}_unigram']['tokens']
+        elif string_type == 'spm_bpe':
+            self.TOKENS = SPM_TOKENS_DICT[f'{dataset}_bpe']['tokens']
         elif string_type == 'bpe':
-            self.TOKENS = TOKENS_BPE_QM9
-        elif string_type == 'bpe_zinc':
-            self.TOKENS = TOKENS_BPE_ZINC
+            self.TOKENS = BPE_TOKENS_DICT[dataset]['tokens']
         elif string_type == 'uni':
-            self.TOKENS = TOKENS_UNI_QM9
-        elif string_type == 'uni_zinc':
-            self.TOKENS = TOKENS_UNI_ZINC
+            self.TOKENS = UNI_TOKENS_DICT[dataset]['tokens']
         else:
             raise ValueError(f"Undefined string type {string_type}")
 

@@ -184,13 +184,7 @@ class MosesGeneratorLightningModule(BaseGeneratorLightningModule):
 
 if __name__ == "__main__":
     wandb.init()
-    # TODO: model별로 parser mapping
-    # parser_cls = {
-    #         "aae": AAEParser,
-    #         # "vae": VAEParser,
-    #         # "organ": ORGANParser,
-    #         # "latentgan": LatentGANParser
-    #     }.get(hparams.model)
+
     parser = AAEParser()
     add_train_args(parser)
     MosesGeneratorLightningModule.add_args(parser)

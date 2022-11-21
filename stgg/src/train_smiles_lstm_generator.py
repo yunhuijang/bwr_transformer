@@ -32,7 +32,8 @@ class SmilesCharGeneratorLightningModule(BaseGeneratorLightningModule):
         self.model = CharRNNGenerator(
             emb_size=hparams.emb_size,
             dropout=hparams.dropout,
-            string_type=hparams.string_type
+            string_type=hparams.string_type,
+            dataset=hparams.dataset_name
         )
 
     ### 
@@ -77,18 +78,16 @@ class SmilesCharGeneratorLightningModule(BaseGeneratorLightningModule):
             with torch.no_grad():
                 sequences = self.model.decode(cur_num_samples, max_len=self.hparams.max_len, device=self.device)
 
-            results.extend(untokenize(sequence, string_type=self.hparams.string_type) for sequence in sequences.tolist())
+            results.extend(untokenize(sequence, string_type=self.hparams.string_type, dataset=self.hparams.dataset_name) for sequence in sequences.tolist())
 
         disable_rdkit_log()
 
         canonicalize_cls = {
             "smiles": canonicalize,
-            "spm": canonicalize,
-            "spm_zinc": canonicalize,
+            "spm_unigram": canonicalize,
+            "spm_bpe": canonicalize,
             "bpe": canonicalize,
-            "bpe_zinc": canonicalize,
             "uni": canonicalize,
-            "uni_zinc": canonicalize,
             "selfies": canonicalize_selfies,
             "deep_smiles": canonicalize_deep_smiles
         }.get(hparams.string_type)
@@ -101,7 +100,7 @@ class SmilesCharGeneratorLightningModule(BaseGeneratorLightningModule):
             smiles_list = Parallel(n_jobs=8)(delayed(sf.decoder)(selfies) for selfies in smiles_list if selfies is not None)
             results = Parallel(n_jobs=8)(delayed(sf.decoder)(selfies) for selfies in results if selfies is not None)
             return smiles_list, results
-        elif self.hparams.string_type in ['smiles', 'spm', 'spm_zinc', 'bpe', 'bpe_zinc', 'uni', 'uni_zinc']:
+        elif self.hparams.string_type in ['smiles', 'spm_unigram', 'spm_bpe', 'bpe', 'uni']:
             return smiles_list, results
         elif self.hparams.string_type == 'deep_smiles':
             converter = Converter(rings=True, branches=True)
@@ -139,6 +138,8 @@ class SmilesCharGeneratorLightningModule(BaseGeneratorLightningModule):
 
         # select string representation
         parser.add_argument("--string_type", type=str, default="selfies")
+        parser.add_argument("--is_character", type=str, default='token')
+        parser.add_argument("--is_pretokenized", type=str, default='wopre')
 
         return parser
 

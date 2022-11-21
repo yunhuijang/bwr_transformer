@@ -170,7 +170,7 @@ class BaseGeneratorLightningModule(pl.LightningModule):
 
             # write generated sample file
             if self.on_epoch_end:
-                with open(f'{OUTPUT_DIR}/STGG_{self.hparams.dataset_name}_{num_samples}_{self.hparams.string_type}_list.txt', 'w') as f :
+                with open(f'{OUTPUT_DIR}/{self.hparams.dataset_name}_{num_samples}_{self.hparams.string_type}_{self.hparams.is_pretokenized}_{self.hparams.is_character}_list.txt', 'w') as f :
                     for smiles in smiles_list:
                         if smiles is not None:
                             f.write("%s\n" %smiles)
@@ -228,6 +228,8 @@ class BaseGeneratorLightningModule(pl.LightningModule):
         parser.add_argument("--eval_moses", action="store_true")
 
         parser.add_argument("--string_type", type=str, default='smiles')
+        parser.add_argument("--is_character", type=str, default='token')
+        parser.add_argument("--is_pretokenized", type=str, default='wopre')
         
 
         return parser
