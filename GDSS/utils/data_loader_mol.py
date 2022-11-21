@@ -79,7 +79,7 @@ def get_transform_fn(dataset):
             return x, adj
 
     return transform
-# TODO: need to change validation
+
 def dataloader(config, get_graph_list=False):
     start_time = time()
     
