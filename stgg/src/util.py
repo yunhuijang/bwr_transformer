@@ -5,14 +5,29 @@ import torch.nn.functional as F
 import selfies as sf
 from deepsmiles import Converter
 import sentencepiece as spm
+from data.smiles_dataset import TOKENS
+import os
+
+# # for debugging
+# os.chdir('./stgg/')
 
 
-def train_sentence_piece(dataset='qm9'):
+def train_sentence_piece(dataset='qm9', model_type='unigram', vocab_size=200, is_tokenized=False):
+    # string_tokens: map ions (e.g., [nH+]) to one token
+    ion_tokens = [token for token in TOKENS if '[' in token]
+    string_tokens = str(ion_tokens)
+    string_tokens = string_tokens[1:-1]
+    string_tokens = string_tokens.replace(" ", "")
+    string_tokens = string_tokens.replace("'", "")
+    is_token = "_token"
+    if not is_tokenized:
+        string_tokens = ""
+        is_token = ""
     # train sentence piece and generate model and vocab file
     if dataset == 'qm9':
-        spm.SentencePieceTrainer.Train('--input=resource/data/qm9/train_val.txt --model_prefix=qm9 --vocab_size=127 --max_sentence_length=200')
+        spm.SentencePieceTrainer.Train(f'--input=../resource/data/qm9/train_val.txt --model_prefix={dataset}_{model_type}_{vocab_size}{is_token} --vocab_size={vocab_size} --max_sentence_length=200 --model_type={model_type} --control_symbols={string_tokens}')
     elif dataset == 'zinc':
-        spm.SentencePieceTrainer.Train('--input=resource/data/zinc/train_val.txt --model_prefix=zinc --vocab_size=200 --max_sentence_length=400')
+        spm.SentencePieceTrainer.Train(f'--input=../resource/data/zinc/train_val.txt --model_prefix={dataset}_{model_type}_{vocab_size}{is_token} --vocab_size={vocab_size} --max_sentence_length=400 --model_type={model_type} --control_symbols={string_tokens}')
 
 def compute_sequence_accuracy(logits, batched_sequence_data, ignore_index=0):
     batch_size = batched_sequence_data.size(0)
@@ -26,7 +41,6 @@ def compute_sequence_accuracy(logits, batched_sequence_data, ignore_index=0):
     sequence_acc = correct.view(batch_size, -1).all(dim=1).float().mean()
 
     return elem_acc, sequence_acc
-
 
 def compute_sequence_cross_entropy(logits, batched_sequence_data, ignore_index=0):
     logits = logits[:, :-1]
