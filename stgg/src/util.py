@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import selfies as sf
 from deepsmiles import Converter
 import sentencepiece as spm
+import re
 from data.smiles_dataset import TOKENS
 import os
 
@@ -115,3 +116,43 @@ def pad_square(squares, padding_value=0):
         batched_squares[idx, : square.size(0), : square.size(1)] = square
 
     return batched_squares
+
+def transform_brics_into_tokens(dataset):
+    '''
+    to transform singlePass BRICS fragments into reversed tokens (for language models)
+    '''
+    with open(f'../resource/fragment/{dataset}/fragment_single_list.txt', 'r') as f:
+        fragment_smiles_list = [line.rstrip() for line in f]
+        
+    fragment_set = set(fragment_smiles_list)
+    filtered_fragments = set('[*]'+frag.split(']')[1] for frag in fragment_set)
+    print(list(filtered_fragments)[0])
+    filtered_fragments =[frag.split(']')[1] for frag in filtered_fragments]
+    print(filtered_fragments[0])
+    reversed_fragments = [frag[::-1] for frag in filtered_fragments]
+    reversed_fragments = [frag.replace('(', '?') for frag in reversed_fragments]
+    reversed_fragments = [frag.replace(')', '(') for frag in reversed_fragments]
+    reversed_fragments = [frag.replace('?', ')') for frag in reversed_fragments]
+    print(reversed_fragments[0])
+
+    with open(f'../resource/fragment/{dataset}/unique_fragment_single_list.txt', 'w') as f:
+        for smiles in filtered_fragments:
+            f.write(f'{smiles}\n')
+
+def filter_brics_fragments(dataset):
+    '''
+    to translate unique_fragment into unique_filtered_fragment
+    replace [*number] to [*] and remove redundants
+    '''
+
+    with open(f'../resource/fragment/{dataset}/unique_fragment_list.txt', 'r') as f:
+        fragment_smiles_list = [line.rstrip() for line in f]
+
+    filtered_fragment_list = [re.subn("[[]\d[*][]]", '[*]', frag)[0] for frag in fragment_smiles_list]
+    filtered_fraagment_list = [re.subn("[[]\d\d[*][]]", '[*]', frag)[0] for frag in filtered_fragment_list]
+    filtered_fragment_set = set(filtered_fraagment_list)
+
+
+    with open(f'../resource/fragment/{dataset}/unique_filtered_fragment_list.txt', 'w') as f:
+        for smiles in filtered_fragment_set:
+            f.write(f'{smiles}\n')
