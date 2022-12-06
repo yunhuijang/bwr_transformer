@@ -12,8 +12,8 @@ import copy
 import os
 from tqdm import tqdm
 
-# # for debugging
-# os.chdir('./stgg/src')
+# for debugging
+os.chdir('./stgg/src')
 
 PAD_TOKEN = "[pad]"
 BOS_TOKEN = "[bos]"
@@ -125,7 +125,7 @@ for dataset in ['qm9', 'zinc']:
     for model_type in ['unigram', 'bpe']:
         key = f'{dataset}_{model_type}'
         SPM_TOKENS_DICT[key] = {}
-        sp = spm.SentencePieceProcessor(model_file=f"../resource/spm_tokenizer/{dataset}/{dataset}_{model_type}_{vocab_size_dict[dataset]}_token.model")
+        sp = spm.SentencePieceProcessor(model_file=f"../resource/spm_tokenizer/{dataset}/{dataset}_{model_type}_{vocab_size_dict[dataset]}.model")
         SPM_TOKENS_DICT[key]['sp'] = sp
         tokens_spm = [sp.IdToPiece(ids) for ids in range(sp.GetPieceSize())]
         tokens_spm.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN])
@@ -250,8 +250,15 @@ class UniGramTokenizer():
         self.pre_tokenization = pre_tokenization
         self.dataset = dataset
         self.is_character = is_character
-        if not os.path.isfile(f"../resource/tokenizer/{self.dataset}/model_{self.vocab_size}_{pre_tokenization_dict[self.pre_tokenization]}_{is_character_dict[self.is_character]}.txt"):
-            self.train_tokenizer_with_unigram()
+        self.model = UNI_TOKENS_DICT[self.dataset]['model']
+        tokens = UNI_TOKENS_DICT[self.dataset]['tokens']
+        tokens.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN, UNK_TOKEN])
+        self.tokens = tokens
+        key = f'{self.dataset}_unigram'
+        self.sp = SPM_TOKENS_DICT[key]['sp']
+
+        # if not os.path.isfile(f"../resource/tokenizer/{self.dataset}/model_{self.vocab_size}_{pre_tokenization_dict[self.pre_tokenization]}_{is_character_dict[self.is_character]}.txt"):
+        #     self.train_tokenizer_with_unigram()
 
     def encode_word(self, word, model):
         best_segmentations = [{"start": 0, "score": 1}] + [
@@ -292,9 +299,8 @@ class UniGramTokenizer():
         data = pd.read_csv(f'../resource/data/{self.dataset}/train_val.txt')
         data.columns =['smiles']
         if self.pre_tokenization:
-            sp = spm.SentencePieceProcessor(model_file=f'../resource/spm_tokenizer/{self.dataset}/{self.dataset}_unigram__{vocab_size_dict[self.dataset]}_token.model')
-            data['tokens'] = data['smiles'].apply(lambda x: sp.encode_as_pieces(x))
-            data['ids'] = data['smiles'].apply(lambda x: sp.encode_as_ids(x))
+            data['tokens'] = data['smiles'].apply(lambda x: self.sp.encode_as_pieces(x))
+            data['ids'] = data['smiles'].apply(lambda x: self.sp.encode_as_ids(x))
             word_freqs = dict(data['tokens'].explode().value_counts())
         else:
             word_freqs = {key: 1 for key in data['smiles']}
@@ -365,20 +371,16 @@ class UniGramTokenizer():
         return scores
 
     def tokenize_uni(self, smiles):
-        model = UNI_TOKENS_DICT[self.dataset]['model']
-        tokens = UNI_TOKENS_DICT[self.dataset]['tokens']
-        tokens.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN, UNK_TOKEN])
-        TOKEN2ID = token_to_id(tokens)
+
+        TOKEN2ID = token_to_id(self.tokens)
         if self.pre_tokenization:
-            key = f'{self.dataset}_unigram'
-            sp = SPM_TOKENS_DICT[key]['sp']
-            pre_tokenized_text = sp.encode_as_pieces(smiles)
-            encoded_words = [self.encode_word(word, model)[0] for word in pre_tokenized_text]
+            pre_tokenized_text = self.sp.encode_as_pieces(smiles)
+            encoded_words = [self.encode_word(word, self.model)[0] for word in pre_tokenized_text]
         else:
             if self.is_character:
-                encoded_words = [self.encode_word(word, model)[0] for word in smiles]
+                encoded_words = [self.encode_word(word, self.model)[0] for word in smiles]
             else:
-                encoded_words = [self.encode_word(word, model)[0] for word in split_for_nlp_tokenizer(smiles)]
+                encoded_words = [self.encode_word(word, self.model)[0] for word in split_for_nlp_tokenizer(smiles)]
 
         tokens = [TOKEN2ID[BOS_TOKEN]]
         token_strs = sum(encoded_words, [])
@@ -392,8 +394,13 @@ class BPETokenizer():
         self.pre_tokenization = pre_tokenization
         self.dataset = dataset
         self.is_character = is_character
-        if not os.path.isfile(f"../resource/tokenizer/{self.dataset}/merges_{self.vocab_size}_{pre_tokenization_dict[self.pre_tokenization]}_{is_character_dict[self.is_character]}.txt"):
-            self.train_tokenizer_with_bpe()
+        self.merges = BPE_TOKENS_DICT[self.dataset]['merges']
+        self.tokens = BPE_TOKENS_DICT[self.dataset]['tokens']
+        self.tokens.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN, UNK_TOKEN])
+        key = f'{self.dataset}_unigram'
+        self.sp = SPM_TOKENS_DICT[key]['sp']
+        # if not os.path.isfile(f"../resource/tokenizer/{self.dataset}/merges_{self.vocab_size}_{pre_tokenization_dict[self.pre_tokenization]}_{is_character_dict[self.is_character]}.txt"):
+        #     self.train_tokenizer_with_bpe()
 
     def compute_pair_freqs(self, splits, word_freqs):
         # used in train_tokenizer_with_bpe
@@ -432,9 +439,7 @@ class BPETokenizer():
         data.columns =['smiles']
         # pre-tokenization
         if self.pre_tokenization:
-            sp = spm.SentencePieceProcessor(model_file=f'../resource/spm_tokenizer/{self.dataset}/{self.dataset}_unigram__{vocab_size_dict[self.dataset]}_token.model')
-            data['tokens'] = data['smiles'].apply(lambda x: sp.encode_as_pieces(x))
-            data['ids'] = data['smiles'].apply(lambda x: sp.encode_as_ids(x))
+            data['ids'] = data['smiles'].apply(lambda x: self.sp.encode_as_ids(x))
             word_freqs = dict(data['tokens'].explode().value_counts())
         else:
             word_freqs = {key: 1 for key in data['smiles']}
@@ -473,21 +478,16 @@ class BPETokenizer():
         return merges, vocab
 
     def tokenize_bpe(self, smiles):
-        merges = BPE_TOKENS_DICT[self.dataset]['merges']
-        tokens = BPE_TOKENS_DICT[self.dataset]['tokens']
-        tokens.extend([BOS_TOKEN, PAD_TOKEN, EOS_TOKEN, UNK_TOKEN])
-        TOKEN2ID = token_to_id(tokens)
+        TOKEN2ID = token_to_id(self.tokens)
         if self.pre_tokenization:
-            key = f'{self.dataset}_unigram'
-            sp = SPM_TOKENS_DICT[key]['sp']
-            pre_tokenized_text = sp.encode_as_pieces(smiles)
+            pre_tokenized_text = self.sp.encode_as_pieces(smiles)
             splits = [[l for l in word] for word in pre_tokenized_text]
         else:
             if self.is_character:
                 splits = [[l for l in word] for word in smiles]
             else:
                 splits = [split_for_nlp_tokenizer(smiles)]
-        for pair, merge in merges.items():
+        for pair, merge in self.merges.items():
             for idx, split in enumerate(splits):
                 i = 0
                 while i < len(split) - 1:
@@ -511,6 +511,10 @@ def tokenize_spm(smiles, dataset='qm9', model_type='bpe'):
     tokens.extend(sp.encode_as_ids(smiles))
     tokens.append(TOKEN2ID[EOS_TOKEN])
     return tokens
+
+# def tokenize_brics(smiles):
+#     with open(f'../resource/fragment/{dataset}/fragment_single_list.txt', 'r') as f:
+#     TOKENS_BRICS = [line.rstrip() for line in f]
 
 def tokenize_selfies(selfies):
     selfies_split = selfies.split("]")[:-1]
@@ -663,7 +667,8 @@ class ZincDataset(Dataset):
         else :
             raise ValueError(f"Undefined string type {string_type}")
         self.smiles_list = string_list
-
+        self.bpe_tokenizer = BPETokenizer(vocab_size=VOCAB_SIZE, pre_tokenization=PRE_TOKENIZATION, is_character=IS_CHARACTER, dataset=self.raw_dir.split('/')[-1])
+        self.uni_tokenizer = UniGramTokenizer(vocab_size=VOCAB_SIZE, pre_tokenization=PRE_TOKENIZATION, is_character=IS_CHARACTER, dataset=self.raw_dir.split('/')[-1])
 
     def __len__(self):
         return len(self.smiles_list)
@@ -689,11 +694,9 @@ class ZincDataset(Dataset):
         elif self.string_type == 'spm_bpe':
             return torch.LongTensor(tokenize_spm(smiles, self.raw_dir.split('/')[-1], model_type='bpe'))
         elif self.string_type == 'bpe':
-            bpe_tokenizer = BPETokenizer(vocab_size=VOCAB_SIZE, pre_tokenization=PRE_TOKENIZATION, is_character=IS_CHARACTER, dataset=self.raw_dir.split('/')[-1])
-            return torch.LongTensor(bpe_tokenizer.tokenize_bpe(smiles))
+            return torch.LongTensor(self.bpe_tokenizer.tokenize_bpe(smiles))
         elif self.string_type == 'uni':
-            uni_tokenizer = UniGramTokenizer(vocab_size=VOCAB_SIZE, pre_tokenization=PRE_TOKENIZATION, is_character=IS_CHARACTER, dataset=self.raw_dir.split('/')[-1])
-            return torch.LongTensor(uni_tokenizer.tokenize_uni(smiles))
+            return torch.LongTensor(self.uni_tokenizer.tokenize_uni(smiles))
         else:
             raise ValueError(f"Undefined string type {self.string_type}")
     
